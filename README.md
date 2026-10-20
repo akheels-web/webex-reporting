@@ -83,9 +83,11 @@ Full runbook and decision log: [`DESIGN.md`](DESIGN.md).
 
 ## Dashboard screenshots
 
-| Login | Dashboard |
-|-------|-----------|
-| *login page with logo* | *per-user table, totals & chart* |
+![Login page](docs/screenshots/login.png)
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+![Reports](docs/screenshots/reports.png)
 
 ## Project structure
 

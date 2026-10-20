@@ -72,8 +72,14 @@ def index():
     def sum_fn(rows_, key):
         return sum(r[key] for r in rows_)
 
+    top = sorted(rows, key=lambda r: r["total"], reverse=True)[:15]
+    chart_data = {
+        "labels": [r["name"] or r["email"] for r in top],
+        "inbound": [r["inbound"] for r in top],
+        "outbound": [r["outbound"] for r in top],
+    }
     return render_template("index.html", months=months, month=month, rows=rows,
-                           sum_fn=sum_fn)
+                           sum_fn=sum_fn, chart_data=chart_data)
 
 
 @app.route("/reports", methods=["GET", "POST"])
