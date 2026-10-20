@@ -1,0 +1,566 @@
+{
+  "name": "Webex Calling Monthly Report - M365 Outlook",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 2 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-1",
+      "name": "2nd of Every Month at 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "mode",
+              "value": "local_service"
+            },
+            {
+              "name": "localServiceUrl",
+              "value": "http://127.0.0.1:8080"
+            },
+            {
+              "name": "localAdminPassword",
+              "value": "CHANGE_ME"
+            },
+            {
+              "name": "webexClientId",
+              "value": "YOUR_WEBEX_SERVICE_APP_CLIENT_ID"
+            },
+            {
+              "name": "webexClientSecret",
+              "value": "YOUR_WEBEX_SERVICE_APP_CLIENT_SECRET"
+            },
+            {
+              "name": "webexGroupName",
+              "value": "NF Head Office"
+            },
+            {
+              "name": "webexAnalyticsUrl",
+              "value": "https://analytics-calling.webexapis.com"
+            },
+            {
+              "name": "emailRecipients",
+              "value": "telecom-admin@yourcompany.com, manager@yourcompany.com"
+            },
+            {
+              "name": "orgTimezone",
+              "value": "Asia/Muscat"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config-vars-1",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [
+        460,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate Previous Month Range\nconst config = $input.first().json;\nconst now = new Date();\n\n// Calculate year and month for previous month\nlet prevYear = now.getFullYear();\nlet prevMonth = now.getMonth(); // 0 is January, 9 is October\n\nif (prevMonth === 0) {\n  prevMonth = 12;\n  prevYear -= 1;\n} // 1-indexed for string formatting\n\nconst monthStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;\n\n// UTC bounds for 30 days\nconst startDate = new Date(Date.UTC(prevYear, prevMonth - 1, 1, 0, 0, 0));\nconst nextMonthDate = new Date(Date.UTC(prevYear, prevMonth, 1, 0, 0, 0));\n\nreturn [{\n  json: {\n    ...config,\n    reportMonth: monthStr,\n    startTimeUtc: startDate.toISOString(),\n    endTimeUtc: nextMonthDate.toISOString(),\n    generatedDate: now.toISOString().split('T')[0]\n  }\n}];"
+      },
+      "id": "calc-dates-1",
+      "name": "Calculate Previous Month",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-mode-check",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "local_service",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "branch-mode-1",
+      "name": "Mode: Service vs Direct Webex",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        940,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.localServiceUrl }}/api/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"password\": \"{{ $json.localAdminPassword }}\"\n}",
+        "options": {}
+      },
+      "id": "http-login-local",
+      "name": "Authenticate to Webex Reporting App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Calculate Previous Month').first().json.localServiceUrl }}/api/stats",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "month",
+              "value": "={{ $('Calculate Previous Month').first().json.reportMonth }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-get-stats-local",
+      "name": "Get Monthly Aggregated Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Calculate Previous Month').first().json.localServiceUrl }}/download/{{ $('Calculate Previous Month').first().json.reportMonth }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "http-get-csv-local",
+      "name": "Download Pre-built CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://webexapis.com/v1/access_token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $json.webexClientId }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $json.webexClientSecret }}"
+            },
+            {
+              "name": "scope",
+              "value": "spark-admin:calling_cdr_read spark-admin:groups_read"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-webex-token",
+      "name": "Get Webex Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://webexapis.com/v1/groups",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $('Calculate Previous Month').first().json.webexGroupName }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-webex-group",
+      "name": "Get Control Hub Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://webexapis.com/v1/groups/{{ $json.items[0].id }}/members",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Webex Access Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "max",
+              "value": "2000"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-webex-members",
+      "name": "Get Group Members",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Calculate Previous Month').first().json.webexAnalyticsUrl }}/v1/cdr_feed",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Webex Access Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "startTime",
+              "value": "={{ $('Calculate Previous Month').first().json.startTimeUtc }}"
+            },
+            {
+              "name": "endTime",
+              "value": "={{ $('Calculate Previous Month').first().json.endTimeUtc }}"
+            },
+            {
+              "name": "max",
+              "value": "5000"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-webex-cdrs",
+      "name": "Fetch Webex Calling CDRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate calls for group members and build HTML + CSV binary\nconst config = $('Calculate Previous Month').first().json;\nconst month = config.reportMonth;\nconst membersData = $('Get Group Members').first().json.items || [];\nconst cdrData = $input.first().json.items || $input.first().json || [];\n\nconst members = membersData.map(m => ({\n  personId: m.personId || m.id,\n  name: m.displayName || m.name || m.email || 'Unknown',\n  email: m.email || ''\n})).filter(m => m.personId);\n\nconst stats = {};\nconst emailMap = {};\nfor (const m of members) {\n  stats[m.personId] = {\n    name: m.name,\n    email: m.email,\n    inbound: 0,\n    outbound: 0,\n    total: 0,\n    talkSec: 0,\n    talkMin: 0\n  };\n  if (m.email) {\n    emailMap[m.email.toLowerCase()] = stats[m.personId];\n  }\n}\n\nfor (const rec of cdrData) {\n  const answered = Boolean(rec.answered || rec.isAnswered || rec.answer_indicator);\n  const duration = parseInt(rec.duration || rec.durationSeconds || 0, 10);\n  if (!answered || duration <= 0) continue;\n\n  const orig = rec.originatingUserId || rec.originatingUserEmail;\n  const term = rec.terminatingUserId || rec.terminatingUserEmail;\n\n  if (orig) {\n    const target = stats[orig] || emailMap[String(orig).toLowerCase()];\n    if (target) {\n      target.outbound += 1;\n      target.talkSec += duration;\n    }\n  }\n\n  if (term) {\n    const target = stats[term] || emailMap[String(term).toLowerCase()];\n    if (target) {\n      target.inbound += 1;\n      target.talkSec += duration;\n    }\n  }\n}\n\nconst rows = Object.values(stats).map(s => {\n  s.total = s.inbound + s.outbound;\n  s.talkMin = Math.round((s.talkSec / 60) * 10) / 10;\n  return s;\n});\nrows.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));\n\nconst totals = rows.reduce((acc, r) => {\n  acc.inbound += r.inbound;\n  acc.outbound += r.outbound;\n  acc.total += r.total;\n  acc.talkMin = Math.round((acc.talkMin + r.talkMin) * 10) / 10;\n  return acc;\n}, { inbound: 0, outbound: 0, total: 0, talkMin: 0, users: rows.length });\n\n// Generate CSV\nconst csvLines = [\n  `\"Webex Call Report\",\"${month}\"`,\n  `\"Name\",\"Email\",\"Inbound Calls\",\"Outbound Calls\",\"Total Calls\",\"Talk Time (min)\"`\n];\nfor (const r of rows) {\n  csvLines.push(`\"${r.name}\",\"${r.email}\",${r.inbound},${r.outbound},${r.total},${r.talkMin}`);\n}\ncsvLines.push(`\"TOTAL\",\"\",${totals.inbound},${totals.outbound},${totals.total},${totals.talkMin}`);\nconst csvContent = csvLines.join(\"\\r\\n\");\n\nreturn [{\n  json: {\n    month,\n    rows,\n    totals,\n    emailRecipients: config.emailRecipients\n  },\n  binary: {\n    data: {\n      data: Buffer.from(csvContent, 'utf-8').toString('base64'),\n      mimeType: 'text/csv',\n      fileName: `webex_call_report_${month}.csv`,\n      fileExtension: 'csv'\n    }\n  }\n}];"
+      },
+      "id": "code-direct-aggregate",
+      "name": "Process Webex CDRs & Build CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare HTML Email Body and Attach Pre-built CSV\nconst config = $('Calculate Previous Month').first().json;\nconst stats = $('Get Monthly Aggregated Stats').first().json;\nconst csvBinary = $('Download Pre-built CSV').first().binary.data;\n\nconst month = stats.month || config.reportMonth;\nconst rows = stats.rows || [];\n\nconst totals = rows.reduce((acc, r) => {\n  acc.inbound += (r.inbound || 0);\n  acc.outbound += (r.outbound || 0);\n  acc.total += (r.total || 0);\n  acc.talkMin = Math.round((acc.talkMin + (r.talk_min || 0)) * 10) / 10;\n  return acc;\n}, { inbound: 0, outbound: 0, total: 0, talkMin: 0, users: rows.length });\n\nreturn [{\n  json: {\n    month,\n    rows,\n    totals,\n    emailRecipients: config.emailRecipients\n  },\n  binary: {\n    data: csvBinary\n  }\n}];"
+      },
+      "id": "code-prep-local",
+      "name": "Format Local Service Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Executive HTML Email Body\nconst item = $input.first();\nconst month = item.json.month;\nconst rows = item.json.rows || [];\nconst totals = item.json.totals;\nconst recipients = item.json.emailRecipients;\n\nconst htmlBody = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <style>\n    body { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; margin: 0; padding: 24px; }\n    .container { max-width: 800px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }\n    .header { background-color: #000097; color: #ffffff; padding: 24px 32px; border-bottom: 4px solid #c80030; }\n    .header h1 { margin: 0 0 6px 0; font-size: 22px; font-weight: 700; }\n    .header p { margin: 0; font-size: 14px; opacity: 0.85; }\n    .content { padding: 28px 32px; }\n    .cards { display: flex; gap: 16px; margin-bottom: 28px; }\n    .card { flex: 1; background: #f4f6fb; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; text-align: center; }\n    .card-val { font-size: 22px; font-weight: bold; margin-bottom: 4px; }\n    .card-lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; }\n    .navy-text { color: #000097; }\n    .red-text { color: #c80030; }\n    .dark-text { color: #0f172a; }\n    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }\n    th { background: #000097; color: #ffffff; text-align: left; padding: 10px 12px; font-weight: 600; font-size: 12px; }\n    th.num, td.num { text-align: right; }\n    td { padding: 9px 12px; border-bottom: 1px solid #e2e8f0; }\n    tr:nth-child(even) td { background-color: #f8fafc; }\n    tr.total-row td { background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #000097; }\n    .footer { padding: 16px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <div class=\"header\">\n      <h1>Webex Monthly Call Report</h1>\n      <p>Performance summary for <strong>${month}</strong> (Handled / Answered calls only)</p>\n    </div>\n    <div class=\"content\">\n      <div class=\"cards\">\n        <div class=\"card\">\n          <div class=\"card-val navy-text\">${totals.inbound}</div>\n          <div class=\"card-lbl\">Inbound Calls</div>\n        </div>\n        <div class=\"card\">\n          <div class=\"card-val red-text\">${totals.outbound}</div>\n          <div class=\"card-lbl\">Outbound Calls</div>\n        </div>\n        <div class=\"card\">\n          <div class=\"card-val dark-text\">${totals.total}</div>\n          <div class=\"card-lbl\">Total Handled</div>\n        </div>\n        <div class=\"card\">\n          <div class=\"card-val dark-text\">${totals.users}</div>\n          <div class=\"card-lbl\">Active Users</div>\n        </div>\n      </div>\n      <h3 style=\"margin-bottom: 8px; color: #0f172a;\">Call Handling Breakdown by User</h3>\n      <table>\n        <thead>\n          <tr>\n            <th>Name</th>\n            <th>Email</th>\n            <th class=\"num\">Inbound</th>\n            <th class=\"num\">Outbound</th>\n            <th class=\"num\">Total</th>\n            <th class=\"num\">Talk Time (min)</th>\n          </tr>\n        </thead>\n        <tbody>\n          ${rows.map(r => `\n          <tr>\n            <td>${r.name || 'Unknown'}</td>\n            <td>${r.email || '—'}</td>\n            <td class=\"num\">${r.inbound}</td>\n            <td class=\"num\">${r.outbound}</td>\n            <td class=\"num\"><strong>${r.total}</strong></td>\n            <td class=\"num\">${r.talkMin !== undefined ? r.talkMin : r.talk_min}</td>\n          </tr>`).join('')}\n          <tr class=\"total-row\">\n            <td>TOTAL</td>\n            <td>—</td>\n            <td class=\"num\">${totals.inbound}</td>\n            <td class=\"num\">${totals.outbound}</td>\n            <td class=\"num\">${totals.total}</td>\n            <td class=\"num\">${totals.talkMin}</td>\n          </tr>\n        </tbody>\n      </table>\n    </div>\n    <div class=\"footer\">\n      Generated automatically on the 2nd of the month via n8n &bull; Microsoft 365 Outlook &bull; Full CSV detail attached\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    month,\n    recipients,\n    subject: `Webex Calling Monthly Report — ${month}`,\n    htmlBody\n  },\n  binary: item.binary\n}];"
+      },
+      "id": "code-render-html",
+      "name": "Render HTML & Format Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "toRecipients": "={{ $json.recipients }}",
+        "subject": "={{ $json.subject }}",
+        "bodyContentType": "html",
+        "body": "={{ $json.htmlBody }}",
+        "attachmentsUi": {
+          "attachmentValues": [
+            {
+              "binaryPropertyName": "data"
+            }
+          ]
+        }
+      },
+      "id": "m365-outlook-send",
+      "name": "Send Report via M365 Outlook",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        340
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "YOUR_M365_OUTLOOK_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "2nd of Every Month at 06:00": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Calculate Previous Month",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Previous Month": {
+      "main": [
+        [
+          {
+            "node": "Mode: Service vs Direct Webex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mode: Service vs Direct Webex": {
+      "main": [
+        [
+          {
+            "node": "Authenticate to Webex Reporting App",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Webex Access Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authenticate to Webex Reporting App": {
+      "main": [
+        [
+          {
+            "node": "Get Monthly Aggregated Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Monthly Aggregated Stats": {
+      "main": [
+        [
+          {
+            "node": "Download Pre-built CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Pre-built CSV": {
+      "main": [
+        [
+          {
+            "node": "Format Local Service Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Local Service Results": {
+      "main": [
+        [
+          {
+            "node": "Render HTML & Format Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Webex Access Token": {
+      "main": [
+        [
+          {
+            "node": "Get Control Hub Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Control Hub Group": {
+      "main": [
+        [
+          {
+            "node": "Get Group Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Group Members": {
+      "main": [
+        [
+          {
+            "node": "Fetch Webex Calling CDRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Webex Calling CDRs": {
+      "main": [
+        [
+          {
+            "node": "Process Webex CDRs & Build CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Webex CDRs & Build CSV": {
+      "main": [
+        [
+          {
+            "node": "Render HTML & Format Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render HTML & Format Email": {
+      "main": [
+        [
+          {
+            "node": "Send Report via M365 Outlook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
