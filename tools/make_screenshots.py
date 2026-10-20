@@ -96,16 +96,16 @@ def main():
             browser = p.chromium.launch()
             page = browser.new_page(viewport={"width": 1280, "height": 800},
                                     device_scale_factor=2)
-            page.goto(f"http://127.0.0.1:{PORT}/login")
+            page.goto(f"http://127.0.0.1:{PORT}/login/")
             page.screenshot(path=str(OUT / "login.png"))
             page.fill("input[name=password]", "demo")
             page.click("button[type=submit]")
-            page.wait_for_selector("canvas", timeout=30000)
-            page.wait_for_timeout(1500)  # chart animation
+            page.wait_for_selector(".recharts-surface", timeout=30000)
+            page.wait_for_timeout(500)
             page.screenshot(path=str(OUT / "dashboard.png"), full_page=True)
-            page.goto(f"http://127.0.0.1:{PORT}/reports")
+            page.goto(f"http://127.0.0.1:{PORT}/reports/")
             page.wait_for_selector("table", timeout=20000)
-            page.screenshot(path=str(OUT / "reports.png"))
+            page.screenshot(path=str(OUT / "reports.png"), full_page=True)
             browser.close()
         print("screenshots ->", OUT)
     finally:

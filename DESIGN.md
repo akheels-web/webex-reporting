@@ -101,4 +101,9 @@ NSSM. Logs in `data\service.log`.
   re-login; tokens auto-refresh in `webex.py`.
 - **Single shared admin password, LAN-only dashboard**: one operator; skip
   per-user accounts/RBAC until a second audience exists.
+- **Next.js + shadcn/ui front end, statically exported** and served by the
+  same Python service (`dashboard/out`): modern UI without a second runtime
+  (Node needed only to build). Old Flask templates deleted; Flask keeps the
+  JSON API (`/api/login`, `/api/stats`, `/api/reports`, run-now/resend,
+  `/download/<month>`) + SPA fallback route.
 - `tzdata` pinned in requirements (Windows has no system tz database).

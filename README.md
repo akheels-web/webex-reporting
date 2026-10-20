@@ -17,11 +17,11 @@ Runs as a **single lightweight service on the customer's own Windows server**. N
 |---|---|
 | **Monthly e-mail report** | HTML summary table in the body + CSV attachment, sent at 06:00 on the 2nd of each month |
 | **Inbound & outbound** | Counts are split per user; only answered ("handled") calls are counted, with total talk time |
+| **Modern dashboard** | [Next.js](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com): month picker, per-user table, Recharts bar chart, org totals, CSV download — single shared admin login |
 | **Group-driven scope** | Users come straight from Control Hub groups — add/remove members in Control Hub and the next report follows automatically, no tool changes |
 | **30-day API limit, solved** | A nightly collector keeps call records flowing into a local SQLite store, self-heals missed days, and warns in the report if an older-than-30-days gap could not be collected |
-| **Dashboard** | Month picker, per-user table, stacked bar chart, org totals, CSV download — single shared admin login |
 | **Operations built in** | Sent-report history, one-click **resend**, **collect now** / **send now** buttons, configurable recipient list |
-| **Oman timezone first** | All month boundaries and schedules use `Asia/Muscat` (UTC+4, no DST); configurable |
+| **One process to run** | The Next.js app is statically exported and served by the same Python service — one runtime on the server |
 
 ## How it works
 
@@ -46,6 +46,13 @@ flowchart LR
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 copy config.example.json config.json   # fill in your values
+
+# build the dashboard (Next.js static export -> dashboard/out)
+cd dashboard
+npm install
+npm run build
+cd ..
+
 .venv\Scripts\python app.py            # dashboard + scheduler on :8080
 ```
 
@@ -55,7 +62,7 @@ Handy CLI modes:
 python app.py --collect          # run one collection now
 python app.py --report-dry       # print last month's table, no e-mail
 python app.py --report 2026-09   # generate + e-mail a specific month
-python -m unittest discover -s tests   # self-check
+python -m unittest discover -s tests   # Python self-check
 ```
 
 ### Configuration (`config.json`)
@@ -92,13 +99,20 @@ Full runbook and decision log: [`DESIGN.md`](DESIGN.md).
 ## Project structure
 
 ```
-app.py        Flask dashboard + CLI + scheduler bootstrap
-jobs.py       Collector • CDR field mapping • aggregation • CSV & e-mail • scheduler
-webex.py      Token lifecycle (client-credentials + refresh) & Webex API calls
-db.py         SQLite schema & access
-templates/    login / index / reports (logo swappable in static/logo.svg)
-tests/        stdlib unittest self-checks
+app.py          Python service: JSON API, serves the exported SPA, scheduler
+jobs.py         Collector • CDR field mapping • aggregation • CSV & e-mail • scheduler
+webex.py        Token lifecycle (client-credentials + refresh) & Webex API calls
+db.py           SQLite schema & access
+dashboard/      Next.js + shadcn/ui front end (statically exported to dashboard/out)
+  app/            /login, / (dashboard), /reports pages
+  components/ui/  shadcn components
+tools/          make_screenshots.py — README screenshots from demo data
+tests/          stdlib unittest self-checks
+config.json     credentials, groups, SMTP, timezone (**gitignored**)
+tokens.json, data/   runtime state (**gitignored**)
 ```
+
+Screenshots above were generated with `tools\make_screenshots.py` against demo data.
 
 ## Operational notes
 

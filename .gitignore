@@ -6,3 +6,7 @@ tokens.json
 data/
 logs/
 .secret_key
+docs/screenshots/
+dashboard/node_modules/
+dashboard/out/
+dashboard/.next/

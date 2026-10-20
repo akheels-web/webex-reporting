@@ -6,8 +6,8 @@ import secrets
 import sys
 import threading
 
-from flask import (Flask, abort, flash, redirect, render_template, request,
-                   session, url_for)
+from flask import (Flask, Response, abort, jsonify, redirect, request,
+                   send_from_directory, session)
 
 import db
 import jobs
@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 HERE = pathlib.Path(__file__).parent
 CFG_FILE = HERE / "config.json"
+SPA = HERE / "dashboard" / "out"
 
 
 def load_config():
@@ -26,7 +27,7 @@ def load_config():
     return json.loads(CFG_FILE.read_text(encoding="utf-8"))
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 app.cfg = load_config()
 _db = (HERE / ".secret_key")
 if not _db.exists():
@@ -35,122 +36,137 @@ app.secret_key = _db.read_text()
 _scheduler_stop = None
 
 
-def require_admin(fn):
+def admin_required(fn):
     def wrapper(*a, **kw):
         if not session.get("admin"):
-            return redirect(url_for("login"))
+            if request.path.startswith("/api/"):
+                return jsonify(error="unauthorized"), 401
+            return redirect("/login/")
         return fn(*a, **kw)
     wrapper.__name__ = fn.__name__
     return wrapper
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        if request.form.get("password") == app.cfg.get("admin_password"):
-            session["admin"] = True
-            return redirect(url_for("index"))
-        flash("Wrong password")
-    return render_template("login.html")
+# --------------------------------------------------------------------------- #
+# SPA (Next.js static export)
+# --------------------------------------------------------------------------- #
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def spa(path=""):
+    p = SPA / path
+    if path and p.is_file():
+        return send_from_directory(SPA, path)
+    index = p / "index.html"
+    if index.is_file():
+        return send_from_directory(SPA, index.relative_to(SPA).as_posix())
+    return send_from_directory(SPA, "index.html")
 
 
-@app.route("/logout")
-def logout():
+# old pre-dashboards links
+@app.route("/login")
+@app.route("/reports")
+def legacy_redirect():
+    return redirect("/")
+
+
+# --------------------------------------------------------------------------- #
+# JSON API
+# --------------------------------------------------------------------------- #
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    body = request.get_json(force=True, silent=True) or {}
+    pw = body.get("password") or request.form.get("password")
+    if pw == app.cfg.get("admin_password"):
+        session["admin"] = True
+        return jsonify(ok=True)
+    return jsonify(error="wrong password"), 401
+
+
+@app.route("/api/logout", methods=["POST", "GET"])
+def api_logout():
     session.clear()
-    return redirect(url_for("login"))
+    if request.method == "GET":
+        return redirect("/login/")
+    return jsonify(ok=True)
 
 
-@app.route("/")
-@require_admin
-def index():
+@app.route("/api/stats")
+@admin_required
+def api_stats():
     conn = db.connect(app.cfg)
     months = db.months_available(conn) or [jobs.previous_month()]
     conn.close()
     month = request.args.get("month") or months[0]
     rows = jobs.aggregate(app.cfg, month)
-
-    def sum_fn(rows_, key):
-        return sum(r[key] for r in rows_)
-
-    top = sorted(rows, key=lambda r: r["total"], reverse=True)[:15]
-    chart_data = {
-        "labels": [r["name"] or r["email"] for r in top],
-        "inbound": [r["inbound"] for r in top],
-        "outbound": [r["outbound"] for r in top],
-    }
-    return render_template("index.html", months=months, month=month, rows=rows,
-                           sum_fn=sum_fn, chart_data=chart_data)
+    return jsonify(months=months, month=month, rows=rows)
 
 
-@app.route("/reports", methods=["GET", "POST"])
-@require_admin
-def reports():
+@app.route("/api/reports")
+@admin_required
+def api_reports():
     conn = db.connect(app.cfg)
-    if request.method == "POST":
-        if request.form.get("action") == "recipients":
-            db.set_recipients(conn, request.form.get("emails", "").split(";"))
-            flash("Recipients updated")
-        conn.commit()
-    history = db.list_reports(conn)
-    recipients = "; ".join(db.get_recipients(conn))
+    data = {"history": db.list_reports(conn),
+            "recipients": "; ".join(db.get_recipients(conn))}
     conn.close()
-    return render_template("reports.html", history=history,
-                           recipients=recipients)
+    return jsonify(**data)
 
 
-@app.route("/api/stats")
-def api_stats():
-    month = request.args.get("month") or jobs.previous_month()
-    rows = jobs.aggregate(app.cfg, month)
-    top = sorted(rows, key=lambda r: r["total"], reverse=True)[:15]
-    return {
-        "labels": [r["name"] or r["email"] for r in top],
-        "inbound": [r["inbound"] for r in top],
-        "outbound": [r["outbound"] for r in top],
-    }
+@app.route("/api/recipients", methods=["POST"])
+@admin_required
+def api_recipients():
+    emails = []
+    for e in (request.get_json() or {}).get("emails", "").replace("\n", ";").split(";"):
+        if e.strip():
+            emails.append(e)
+    conn = db.connect(app.cfg)
+    with conn:
+        db.set_recipients(conn, emails)
+    conn.close()
+    return jsonify(ok=True)
 
 
-@app.route("/download/<month>")
-@require_admin
-def download(month):
-    rows = jobs.aggregate(app.cfg, month)
-    data = jobs.make_csv(rows, month)
-    from flask import Response
-    return Response(data, mimetype="text/csv",
-                    headers={"Content-Disposition":
-                             f"attachment; filename=webex_call_report_{month}.csv"})
+@app.route("/api/run/collect", methods=["POST"])
+@admin_required
+def api_run_collect():
+    threading.Thread(target=lambda: jobs.run_collector(app.cfg),
+                     daemon=True).start()
+    return jsonify(started=True)
 
 
-@app.route("/runcollect", methods=["POST"])
-@require_admin
-def runcollect():
-    threading.Thread(target=lambda: jobs.run_collector(app.cfg), daemon=True).start()
-    flash("Collection started in background (takes a few minutes)")
-    return redirect(url_for("index"))
-
-
-@app.route("/sendreport", methods=["POST"])
-@require_admin
-def sendreport():
-    month = request.form.get("month") or jobs.previous_month()
+@app.route("/api/run/report", methods=["POST"])
+@admin_required
+def api_run_report():
+    body = request.get_json(silent=True) or {}
+    month = body.get("month") or jobs.previous_month()
     threading.Thread(
         target=lambda: jobs.run_reporter(app.cfg, month), daemon=True).start()
-    flash(f"Monthly report for {month} is being generated and sent")
-    return redirect(url_for("reports"))
+    return jsonify(started=True, month=month)
 
 
-@app.route("/resend/<int:report_id>", methods=["POST"])
-@require_admin
-def resend(report_id):
+@app.route("/api/report/<int:report_id>/resend", methods=["POST"])
+@admin_required
+def api_report_resend(report_id):
     conn = db.connect(app.cfg)
     rep = db.get_report(conn, report_id)
     conn.close()
     if not rep:
         abort(404)
     threading.Thread(
-        target=lambda: jobs.run_reporter(app.cfg, rep["month"]), daemon=True).start()
-    flash(f"Report {rep['month']} queued for resend")
-    return redirect(url_for("reports"))
+        target=lambda: jobs.run_reporter(app.cfg, rep["month"]),
+        daemon=True).start()
+    return jsonify(started=True)
+
+
+@app.route("/download/<month>")
+@admin_required
+def download(month):
+    rows = jobs.aggregate(app.cfg, month)
+    data = jobs.make_csv(rows, month)
+    return Response(data, mimetype="text/csv",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=webex_call_report_{month}.csv"})
 
 
 def main():
@@ -159,7 +175,8 @@ def main():
                     help="run the nightly collection now and exit")
     ap.add_argument("--report", metavar="YYYY-MM",
                     help="aggregate + send report for a month and exit")
-    ap.add_argument("--report-dry", "--dry", metavar="YYYY-MM", nargs="?", const="auto",
+    ap.add_argument("--report-dry", "--dry", metavar="YYYY-MM", nargs="?",
+                    const="auto",
                     help="print last month's table without emailing")
     ap.add_argument("--port", type=int, default=None)
     args = ap.parse_args()
@@ -186,6 +203,9 @@ def main():
         global _scheduler_stop
         _scheduler_stop = jobs.start_scheduler(app.cfg)
         port = args.port or app.cfg.get("dashboard_port", 8080)
+        if not SPA.exists():
+            log.warning("dashboard/out not found — build it: "
+                        "cd dashboard && npm install && npm run build")
         log.info("Dashboard http://0.0.0.0:%s (Ctrl+C to stop)", port)
         app.run(host="0.0.0.0", port=port)
 
