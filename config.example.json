@@ -1,0 +1,20 @@
+{
+  "client_id": "PASTE_SERVICE_APP_CLIENT_ID",
+  "client_secret": "PASTE_SERVICE_APP_CLIENT_SECRET",
+  "scopes": "spark-admin:calling_cdr_read spark-admin:groups_read",
+  "analytics_base_url": "https://analytics-calling.webexapis.com",
+  "report_groups": ["NF Head Office"],
+  "org_timezone": "Asia/Muscat",
+  "admin_password": "CHANGE_ME",
+  "dashboard_port": 8080,
+  "smtp": {
+    "host": "smtp.customer.local",
+    "port": 587,
+    "use_tls": true,
+    "user": "",
+    "password": "",
+    "from": "webex-reports@customer.local"
+  },
+  "token_file": "tokens.json",
+  "data_dir": "data"
+}

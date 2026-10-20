@@ -1,0 +1,86 @@
+<!doctype html>
+<title>Webex Reports</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  body { font-family: Segoe UI, sans-serif; margin:0; background:#f5f5f5; }
+  header { background:#fff; padding:.75rem 2rem; box-shadow:0 1px 4px #0002;
+           display:flex; align-items:center; gap:1.5rem; }
+  nav { margin-left:auto; }
+  main { padding:1.5rem 2rem; }
+  select, button { padding:.4rem .6rem; }
+  table { border-collapse:collapse; background:#fff; margin-top:1rem; width:100%; }
+  th, td { border:1px solid #ddd; padding:.45rem .75rem; text-align:right; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align:left; }
+  th { background:#0d6efd; color:#fff; }
+  tfoot td { font-weight:bold; background:#eef; }
+  .cards { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .card { background:#fff; border-radius:8px; padding:1rem 1.5rem; box-shadow:0 1px 4px #0001; }
+  .card h3 { margin:.2rem 0; font-size:1.8rem; }
+  a { text-decoration:none; color:#0d6efd; }
+</style>
+<header>
+  <img src="{{ url_for('static', filename='logo.svg') }}" alt="logo"
+       width="36" height="36">
+  <h2 style="margin:0">Webex Reports</h2>
+  <nav>
+    <a href="{{ url_for('index') }}">Dashboard</a> ·
+    <a href="{{ url_for('reports') }}">Reports</a> ·
+    <a href="{{ url_for('logout') }}">Sign out</a>
+  </nav>
+</header>
+<main>
+  <form method="get">
+    Month:
+    <select name="month" onchange="this.form.submit()">
+      {% for m in months %}
+        <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  <form method="post" action="{{ url_for('runcollect') }}" style="display:inline">
+    <button type="submit">Collect now</button>
+  </form>
+
+  <div class="cards">
+    <div class="card"><h3>{{ sum_fn(rows,'inbound') }}</h3>Inbound</div>
+    <div class="card"><h3>{{ sum_fn(rows,'outbound') }}</h3>Outbound</div>
+    <div class="card"><h3>{{ sum_fn(rows,'total') }}</h3>Total calls</div>
+    <div class="card"><h3>{{ rows|length }}</h3>Users</div>
+  </div>
+
+  <div style="background:#fff;padding:1rem;box-shadow:0 1px 4px #0001">
+    <canvas id="chart" height="120"></canvas>
+  </div>
+
+  <table>
+    <thead><tr><th>Name</th><th>Email</th><th>Inbound</th><th>Outbound</th>
+      <th>Total</th><th>Talk (min)</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr><td>{{ r.name }}</td><td>{{ r.email }}</td><td>{{ r.inbound }}</td>
+          <td>{{ r.outbound }}</td><td>{{ r.total }}</td><td>{{ r.talk_min }}</td>
+          <td></td></tr>
+      {% else %}
+      <tr><td colspan="7" style="text-align:center">No data for {{ month }} — click “Collect now” or wait for the nightly run.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if rows %}
+    <tfoot><tr><td colspan="2">TOTAL</td><td>{{ sum_fn(rows,'inbound') }}</td>
+      <td>{{ sum_fn(rows,'outbound') }}</td><td>{{ sum_fn(rows,'total') }}</td>
+      <td></td><td>
+        <a href="{{ url_for('download', month=month) }}">Download CSV</a></td></tr></tfoot>
+    {% endif %}
+  </table>
+</main>
+<script>
+  const stats = {{ chart_data|safe }};
+  new Chart(document.getElementById('chart'), {
+    type: 'bar',
+    data: { labels: stats.labels,
+      datasets: [
+        { label: 'Inbound', data: stats.inbound, backgroundColor: '#0d6efd' },
+        { label: 'Outbound', data: stats.outbound, backgroundColor: '#fd7e14' },
+      ]},
+    options: { scales: { y: { beginAtZero: true } } }
+  });
+</script>
