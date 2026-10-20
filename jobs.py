@@ -1,8 +1,10 @@
+import calendar
 import csv
 import email.encoders
 import io
 import json
 import logging
+import pathlib
 import smtplib
 import threading
 import time
@@ -195,6 +197,130 @@ def aggregate(cfg, month):
         return rows
     finally:
         conn.close()
+
+
+def make_pdf(cfg, month, rows):
+    """Branded monthly report PDF (A4): navy header band with logo, stat
+    cards, zebra detail table, TCT footer."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate,
+                                    Spacer, Table, TableStyle)
+
+    NAVY = colors.HexColor("#000097")
+    RED = colors.HexColor("#c80030")
+    ZEBRA = colors.HexColor("#f4f6fb")
+    LINE = colors.HexColor("#e2e8f0")
+    GRAY = colors.HexColor("#64748b")
+    DARK = colors.HexColor("#0f172a")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, topMargin=84, bottomMargin=52,
+        leftMargin=40, rightMargin=40,
+        title=f"Webex Call Report {month}", author="Webex Reports")
+    W, H = A4
+
+    def page_frame(canv, _doc):
+        canv.saveState()
+        # header band
+        canv.setFillColor(NAVY)
+        canv.rect(0, H - 64, W, 64, fill=1, stroke=0)
+        canv.setFillColor(RED)
+        canv.rect(0, H - 68, W, 4, fill=1, stroke=0)
+        canv.setFillColor(colors.white)
+        canv.roundRect(38, H - 51, 118, 38, 8, fill=1, stroke=0)
+        logo = pathlib.Path(__file__).parent / "assets" / "nfc-logo.png"
+        canv.drawImage(str(logo), 44, H - 47.5, width=106, height=23.8,
+                       mask="auto")
+        canv.setFillColor(colors.white)
+        canv.setFont("Helvetica-Bold", 15)
+        canv.drawString(175, H - 30, "Webex Monthly Call Report")
+        canv.setFillColor(colors.Color(1, 1, 1, 0.65))
+        canv.setFont("Helvetica", 10)
+        canv.drawString(175, H - 46, f"{calendar.month_name[int(month[5:7])]} {month[:4]}")
+        # footer
+        canv.setStrokeColor(LINE)
+        canv.line(40, 38, W - 40, 38)
+        tct = pathlib.Path(__file__).parent / "tct_logo.png"
+        canv.drawImage(str(tct), 40, 15, height=14, width=51.7, mask="auto")
+        canv.setFillColor(GRAY)
+        canv.setFont("Helvetica", 8)
+        canv.drawString(100, 19, "Presented by TCT")
+        gen = datetime.now(local_tz(cfg)).strftime("%d %b %Y, %H:%M")
+        canv.drawRightString(W - 40, 19,
+                             f"Generated {gen} (Oman time) · Page {canv.getPageNumber()}")
+        canv.restoreState()
+
+    num = ParagraphStyle(name="num", fontName="Helvetica-Bold", fontSize=19,
+                         leading=23, alignment=1)
+    lbl = ParagraphStyle(name="lbl", fontName="Helvetica", fontSize=8.5,
+                         leading=11, alignment=1, textColor=GRAY,
+                         spaceBefore=2)
+    cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9,
+                          leading=12)
+    head = ParagraphStyle(name="head", fontName="Helvetica-Bold", fontSize=9,
+                          leading=12, textColor=colors.white)
+    sect = ParagraphStyle(name="sect", fontName="Helvetica-Bold", fontSize=9.5,
+                          leading=13, textColor=DARK)
+    note = ParagraphStyle(name="note", fontName="Helvetica", fontSize=8.5,
+                          leading=12, textColor=colors.HexColor("#b91c1c"))
+
+    tot_in = sum(r["inbound"] for r in rows)
+    tot_out = sum(r["outbound"] for r in rows)
+    stats = Table(
+        [[[Paragraph(str(v), ParagraphStyle(f"num{j}", parent=num,
+                                            textColor=c)), Paragraph(l, lbl)]
+          for j, (v, c, l) in enumerate([(tot_in, NAVY, "INBOUND CALLS"),
+                                         (tot_out, RED, "OUTBOUND CALLS"),
+                                         (tot_in + tot_out, DARK, "TOTAL CALLS"),
+                                         (len(rows), DARK, "USERS")])]],
+        colWidths=[(W - 80) / 4] * 4)
+    stats.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), ZEBRA),
+        ("GRID", (0, 0), (-1, -1), 3, colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    data = [[Paragraph(x, head) for x in
+             ["Name", "Email", "Inbound", "Outbound", "Total", "Talk (min)"]]]
+    for r in rows:
+        data.append([r["name"] or "", r["email"] or "", r["inbound"],
+                     r["outbound"], r["total"], r["talk_min"]])
+    if rows:
+        data.append(["TOTAL", "", tot_in, tot_out, tot_in + tot_out,
+                     round(sum(r["talk_min"] for r in rows), 1)])
+    table = Table(
+        data, colWidths=[118, 155, 62, 66, 52, 62 - 15],
+        repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, ZEBRA]),
+        ("BACKGROUND", (0, -1), (-1, -1), ZEBRA),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, NAVY),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, NAVY),
+        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+    ]))
+
+    story = [stats, Spacer(1, 16), Paragraph("Per-user detail", sect),
+             Spacer(1, 6), table]
+    conn = db.connect(cfg)
+    gap = db.kv_get(conn, "gap_warning")
+    conn.close()
+    if gap:
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(
+            "Warning: a data gap older than 30 days was detected; part of "
+            "this month could not be collected from Webex.", note))
+    doc.build(story, onFirstPage=page_frame, onLaterPages=page_frame)
+    return buf.getvalue()
 
 
 def make_csv(rows, month):

@@ -179,12 +179,21 @@ export default function DashboardPage() {
                     <TableCell className="text-right font-bold">{sums.total}</TableCell>
                     <TableCell />
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        render={<a href={`/download/${stats.month}`} />}
-                      >
-                        Download CSV
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          render={<a href={`/download/${stats.month}`} />}
+                        >
+                          CSV
+                        </Button>
+                        <Button
+                          size="sm"
+                          render={<a href={`/download/${stats.month}/pdf`} />}
+                        >
+                          PDF
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 </TableFooter>

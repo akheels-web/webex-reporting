@@ -169,6 +169,16 @@ def download(month):
                              f"attachment; filename=webex_call_report_{month}.csv"})
 
 
+@app.route("/download/<month>/pdf")
+@admin_required
+def download_pdf(month):
+    rows = jobs.aggregate(app.cfg, month)
+    data = jobs.make_pdf(app.cfg, month, rows)
+    return Response(data, mimetype="application/pdf",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=webex_call_report_{month}.pdf"})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--collect", action="store_true",
