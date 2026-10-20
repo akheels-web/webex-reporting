@@ -204,7 +204,7 @@
             },
             {
               "name": "scope",
-              "value": "spark-admin:calling_cdr_read spark-admin:groups_read"
+              "value": "spark-admin:calling_cdr_read identity:groups_read spark-admin:people_read"
             }
           ]
         },
@@ -389,12 +389,7 @@
         2660,
         340
       ],
-      "credentials": {
-        "microsoftOutlookOAuth2Api": {
-          "id": "YOUR_M365_OUTLOOK_CREDENTIAL_ID",
-          "name": "Microsoft Outlook account"
-        }
-      }
+      "credentials": {}
     }
   ],
   "connections": {
